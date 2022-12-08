@@ -173,15 +173,17 @@ class SWPReceiver:
             #drop if not in range
             if seq_num < self._last_byte_read or (seq_num - self._last_byte_read) > SWPReceiver._RECV_WINDOW_SIZE:
                 logging.debug("Dropped: %s" % packet)
-                continue
             else:
                 #buffer data
                 self._buffer[seq_num] = packet.data
-                logging.debug("Buffer: %s" %  self._buffer)
+                #logging.debug("Buffer: %s" %  self._buffer)
             
+            #if buffer is empty skip traversing buffer
+            if not self._buffer:
+                continue
+
             #traverse
-            if blocks
-            blocks = sorted(self._buffer.keys(), reverse=True)            
+            blocks = sorted(self._buffer.keys(), reverse=True)      
             prev = blocks.pop()
             self._ready_data.put(self._buffer[prev])
             self._buffer.pop(prev)
