@@ -18,6 +18,7 @@ class SWPPacket:
         self._type = type
         self._seq_num = seq_num
         self._data = data
+        self.data
 
     @property
     def type(self):
@@ -50,11 +51,12 @@ class SWPPacket:
 
 class SWPSender:
     _SEND_WINDOW_SIZE = 5
-    _TIMEOUT = 3
+    _TIMEOUT = 1
 
     def __init__(self, remote_address, loss_probability=0):
         self._llp_endpoint = llp.LLPEndpoint(remote_address=remote_address,
                 loss_probability=loss_probability)
+        self._llp_lock = threading.Lock() #prevent multiple thread trying to access llp_lock same time
 
         # Start receive thread
         self._recv_thread = threading.Thread(target=self._recv)
@@ -84,7 +86,10 @@ class SWPSender:
 
         #send packet
         packet = SWPPacket(SWPType.DATA, seq_num=seq_num, data=data)
-        self._llp_endpoint.send(packet.to_bytes())
+
+        with self._llp_lock:
+            self._llp_endpoint.send(packet.to_bytes())
+        
         logging.debug("Sent %s" % packet)
         self._last_byte_sent+=1
 
@@ -100,7 +105,8 @@ class SWPSender:
 
         #send packet
         packet = SWPPacket(SWPType.DATA, seq_num=seq_num, data=data)
-        self._llp_endpoint.send(packet.to_bytes())
+        with self._llp_lock:
+            self._llp_endpoint.send(packet.to_bytes())
         logging.debug("Sent %s", packet)
 
         #timer retransmission
@@ -121,19 +127,21 @@ class SWPSender:
 
             seq_num = packet.seq_num
             
-            if seq_num <= self._last_byte_acked or seq_num > self._last_byte_sent:
+            if seq_num > self._last_byte_sent:
                 logging.debug("Dropped: %s" % packet)
                 continue
             
             self._last_byte_acked = seq_num
-            
-            #cancel retransmission
-            t = self._timer.pop(seq_num)
-            t.cancel()
 
-            #remove data from buffer
-            self._buffer.pop(seq_num)
-            self._window.release()
+            for curr in sorted(self._buffer.keys()):
+                if curr <= self._last_byte_acked:
+                    #cancel retransmission
+                    t = self._timer.pop(curr)
+                    t.cancel()
+
+                    #remove data from buffer
+                    self._buffer.pop(curr)
+                    self._window.release()
 
         return
 
@@ -170,38 +178,24 @@ class SWPReceiver:
             
             seq_num = packet.seq_num
 
-            #drop if not in range
-            if seq_num < self._last_byte_read or (seq_num - self._last_byte_read) > SWPReceiver._RECV_WINDOW_SIZE:
-                logging.debug("Dropped: %s" % packet)
-                continue
-            else:
-                #buffer data
+            #buffer data
+            if seq_num > self._last_byte_read or (seq_num - self._last_byte_read) <= SWPReceiver._RECV_WINDOW_SIZE:
+                self._last_byte_rcvd = seq_num
                 self._buffer[seq_num] = packet.data
-                logging.debug("Buffer: %s" %  self._buffer)
-            
-            #traverse
-            if blocks
-            blocks = sorted(self._buffer.keys(), reverse=True)            
-            prev = blocks.pop()
-            self._ready_data.put(self._buffer[prev])
-            self._buffer.pop(prev)
-            next=None
-            self._last_byte_read = prev-1
-            while blocks:
-                next = blocks.pop()
-                if next == prev+1:
-                    self._ready_data.put(self._buffer[next])
-                    self._buffer.pop(prev)
-                    self._next_byte_expected = next+1
-                prev = next
 
-            self._last_byte_rcvd = next if next else prev
-            self._next_byte_expected = self._next_byte_expected if next else prev+1
+            #traverse buffer
+            for curr in sorted(self._buffer.keys()):
+                if curr == self._last_byte_read+1:
+                    self._ready_data.put(self._buffer.pop(curr))
+                    self._last_byte_read+=1
+                    self._next_byte_expected=curr+1
             
             #send ACK
             packet = SWPPacket(SWPType.ACK, self._next_byte_expected-1)
             self._llp_endpoint.send(packet.to_bytes())
-            logging.debug("Sent %s", packet)
+            #logging.debug("Sent %s", packet)
+
+            #logging.debug("%s, %s, %s" % (self._last_byte_read, self._last_byte_rcvd, self._next_byte_expected))
             
 
         return
