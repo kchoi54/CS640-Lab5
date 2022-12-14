@@ -9,7 +9,7 @@ EC2_PATH = ec2.csv
 compile: $(JAVAFILE)
 	javac -d $(CLASSDIR) $(JAVAFILE)
 
-run:
+run: compile
 	java -cp $(CLASSDIR) $(PACKAGE) -r $(ROOT_IP) -e $(EC2_PATH) 
 
 clean:
