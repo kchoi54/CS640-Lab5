@@ -123,13 +123,15 @@ public class SimpleDNS
             ans = DNS.deserialize(ansPkt.getData(), ansPkt.getLength());
 			System.out.println("checking next dest");
             System.out.println(ans+"@@@@@@@@@\n" + ans.getAnswers().size());
-			if(cnameAnswers.size() ==0){
-			buffer = ans.serialize();
-			// DNSAnswers = ans.getAnswers();
-			// for (DNSResourceRecord auths : ans.getAuthorities())
-			// 	authAnswers.add(auths);
-			// ans.setAuthorities(authAnswers);
-            // ans.setAnswers(DNSAnswers);
+			
+            if(cnameAnswers.size()==0){
+			DNSAnswers = ans.getAnswers();
+			for (DNSResourceRecord auths : ans.getAuthorities())
+				authAnswers.add(auths);
+			ans.setAuthorities(authAnswers);
+            ans.setAnswers(DNSAnswers);
+            ans.setRecursionAvailable(true);
+            buffer = ans.serialize();
 			ansPkt = new DatagramPacket(buffer, buffer.length);
 			System.out.println("set anspacket");
 			
