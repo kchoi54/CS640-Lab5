@@ -75,7 +75,8 @@ public class SimpleDNS
         List<DNSResourceRecord> cnameAnswers = new ArrayList<DNSResourceRecord>();  
         byte[] buffer = null;   
 		List<DNSResourceRecord> DNSAnswers = new ArrayList<DNSResourceRecord>();
-		List<DNSResourceRecord> authAnswers = new ArrayList<DNSResourceRecord>();
+		List<DNSResourceRecord> authAnswers = new ArrayList<>();
+        List<DNSResourceRecord> additionalAnswers = new ArrayList<>();
 		// System.out.println("Size of ans : "+ ans.getAnswers().size() + "real answer :: " + ans.g);
         while (ans.getAnswers().size() == 0 || ans.getAnswers().get(0).getType() == DNS.TYPE_CNAME) {
             if (ans.getAdditional().size() > 0) {
@@ -122,29 +123,49 @@ public class SimpleDNS
             ansPkt = nonRecursive(queryPkt, nextDst);
             ans = DNS.deserialize(ansPkt.getData(), ansPkt.getLength());
 			System.out.println("checking next dest");
-            System.out.println(ans+"@@@@@@@@@\n" + ans.getAnswers().size());
-			if(cnameAnswers.size() ==0){
-			buffer = ans.serialize();
-			// DNSAnswers = ans.getAnswers();
-			// for (DNSResourceRecord auths : ans.getAuthorities())
-			// 	authAnswers.add(auths);
-			// ans.setAuthorities(authAnswers);
-            // ans.setAnswers(DNSAnswers);
-			ansPkt = new DatagramPacket(buffer, buffer.length);
-			System.out.println("set anspacket");
+            System.out.println(ans+"@@@@@@@@@\n" + ans.getAnswers().size() + " " + ans.getAuthorities() + "Addtitionals : " + ans.getAdditional());
+            authAnswers.addAll(ans.getAuthorities());
+            additionalAnswers.addAll(ans.getAdditional());
+
+
+            
+            
+			// if(cnameAnswers.size() ==0){
+			// buffer = ans.serialize();
+			// // DNSAnswers = ans.getAnswers();
+			// // for (DNSResourceRecord auths : ans.getAuthorities())
+			// // 	authAnswers.add(auths);
+			// // ans.setAuthorities(authAnswers);
+            // // ans.setAnswers(DNSAnswers);
+			// ansPkt = new DatagramPacket(buffer, buffer.length);
+			// System.out.println("set anspacket");
 			
-			return ansPkt;}
+			// // return ansPkt;}
+            // }
 
         }
 		
-        if (cnameAnswers.size() > 0) {
+  
 			System.out.println("cnameanswers are  : "+ cnameAnswers);
             ans = DNS.deserialize(ansPkt.getData(), ansPkt.getLength());
+
+            DNSAnswers.addAll(ans.getAnswers());
             
             for (DNSResourceRecord cnameAns : cnameAnswers) {
                 DNSAnswers.add(cnameAns);
             }
             ans.setAnswers(DNSAnswers);
+            // for item : authAnswers{
+                
+            // }
+            ans.setAuthorities(authAnswers);
+            List<DNSResourceRecord> finadd = new ArrayList<>();
+            for (DNSResourceRecord ele : additionalAnswers){
+                if (ele.getType() == DNS.TYPE_A || ele.getType() == DNS.TYPE_AAAA)
+                    finadd.add(ele);
+            }
+
+            ans.setAdditional(finadd);
 			// ans.setAdditional(ans.getAdditional());
 			// ans.setAuthorities(ans.getAuthorities());
 
@@ -153,10 +174,11 @@ public class SimpleDNS
             buffer = ans.serialize();
             ansPkt = new DatagramPacket(buffer, buffer.length);
 		
-        }
+        
         return ansPkt;      
     }
-
+    
+    
     private static DatagramPacket nonRecursive(DatagramPacket queryPkt, InetAddress dst) {
         try {
             byte[] buffer = new byte[4096];
