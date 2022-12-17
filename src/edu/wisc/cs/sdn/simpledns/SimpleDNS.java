@@ -15,6 +15,7 @@ public class SimpleDNS
 {
     public static DatagramSocket socket;
     public static Map<String, List<String>> ipMap = new HashMap<String, List<String>>();
+    public static InetAddress root;
     public static void main(String[] args) throws Exception
     {
         System.out.println("Hello, DNS!"); 
@@ -39,12 +40,13 @@ public class SimpleDNS
             System.err.println(e);
         }
 
-        InetAddress root = InetAddress.getByName(rootIp);
+        root = InetAddress.getByName(rootIp);
         socket = new DatagramSocket(8053);
         byte[] buffer = new byte[4096];
         while (true) {
                 DatagramPacket queryPkt = new DatagramPacket(buffer, buffer.length);
                 socket.receive(queryPkt);
+                //System.out.println()
                 DNS dnsPkt = DNS.deserialize(queryPkt.getData(), queryPkt.getLength());
                 if (dnsPkt.getOpcode() != DNS.OPCODE_STANDARD_QUERY) return;
                 for (DNSQuestion q : dnsPkt.getQuestions()) {
@@ -78,7 +80,7 @@ public class SimpleDNS
 		List<DNSResourceRecord> authAnswers = new ArrayList<>();
         List<DNSResourceRecord> additionalAnswers = new ArrayList<>();
 		// System.out.println("Size of ans : "+ ans.getAnswers().size() + "real answer :: " + ans.g);
-        while (ans.getAnswers().size() == 0 || ans.getAnswers().get(0).getType() == DNS.TYPE_CNAME) {
+        while (ans.getAnswers().size() == 0) {
             if (ans.getAdditional().size() > 0) {
                 for (DNSResourceRecord rec : ans.getAdditional()) {
                     if (rec.getType() != DNS.TYPE_AAAA && rec.getName().length() > 0) {
@@ -107,11 +109,38 @@ public class SimpleDNS
                 System.err.println(e);
                 return null;
             }
-            if (ans.getAnswers().size() > 0 && ans.getAnswers().get(0).getType() == DNS.TYPE_CNAME) {
-                for (DNSResourceRecord cnameAns : ans.getAnswers()) {
-                    cnameAnswers.add(cnameAns);
+            ansPkt = nonRecursive(queryPkt, nextDst);
+            ans = DNS.deserialize(ansPkt.getData(), ansPkt.getLength());
+			System.out.println("checking next dest");
+            //System.out.println(ans+"@@@@@@@@@\n" + ans.getAnswers().size() + " " + ans.getAuthorities() + "Addtitionals : " + ans.getAdditional());
+            authAnswers.addAll(ans.getAuthorities());
+            additionalAnswers.addAll(ans.getAdditional());
+        }
+
+        System.out.println(ans.getAnswers());
+        if (ans.getAnswers().size() > 0) {
+            for (DNSResourceRecord ansEntry : ans.getAnswers()) {
+                if(ansEntry.getType() == DNS.TYPE_CNAME) {
+                    DNSRdataName data = (DNSRdataName) ansEntry.getData();
+                    String addr = data.getName();
+                    boolean found = false;
+                    for (DNSResourceRecord ansEntry2 : ans.getAnswers()) {
+                        if(ansEntry2.getName().equals(addr)) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found)
+                    {cnameAnswers.add(ansEntry);}
                 }
-                String newQ = ans.getAnswers().get(0).getData().toString();
+            }
+        }
+        
+        DNSAnswers.addAll(ans.getAnswers());
+        if (q.getType() == DNS.TYPE_A) {
+            for (DNSResourceRecord cnameEntry:cnameAnswers) {
+
+                String newQ = cnameEntry.getData().toString();
                 DNS dnsPkt = DNS.deserialize(queryPkt.getData(), queryPkt.getLength());
                 DNSQuestion newQuestion = new DNSQuestion(newQ, q.getType());
                 List<DNSQuestion> DNSQuestions = new ArrayList<DNSQuestion>();
@@ -119,41 +148,22 @@ public class SimpleDNS
                 dnsPkt.setQuestions(DNSQuestions);
                 buffer = dnsPkt.serialize();
                 queryPkt = new DatagramPacket(buffer, buffer.length);
+
+                DatagramPacket cnameAnsPkt = recursive(queryPkt, root, newQuestion);
+                DNS cnameAns = DNS.deserialize(cnameAnsPkt.getData(), cnameAnsPkt.getLength());
+                DNSAnswers.addAll(cnameAns.getAnswers());
             }
-            ansPkt = nonRecursive(queryPkt, nextDst);
-            ans = DNS.deserialize(ansPkt.getData(), ansPkt.getLength());
-			System.out.println("checking next dest");
-            System.out.println(ans+"@@@@@@@@@\n" + ans.getAnswers().size() + " " + ans.getAuthorities() + "Addtitionals : " + ans.getAdditional());
-            authAnswers.addAll(ans.getAuthorities());
-            additionalAnswers.addAll(ans.getAdditional());
-
-
-            
-            
-			// if(cnameAnswers.size() ==0){
-			// buffer = ans.serialize();
-			// // DNSAnswers = ans.getAnswers();
-			// // for (DNSResourceRecord auths : ans.getAuthorities())
-			// // 	authAnswers.add(auths);
-			// // ans.setAuthorities(authAnswers);
-            // // ans.setAnswers(DNSAnswers);
-			// ansPkt = new DatagramPacket(buffer, buffer.length);
-			// System.out.println("set anspacket");
-			
-			// // return ansPkt;}
-            // }
-
         }
 		
   
-			System.out.println("cnameanswers are  : "+ cnameAnswers);
-            ans = DNS.deserialize(ansPkt.getData(), ansPkt.getLength());
+			// System.out.println("cnameanswers are  : "+ cnameAnswers);
+            // ans = DNS.deserialize(ansPkt.getData(), ansPkt.getLength());
 
-            DNSAnswers.addAll(ans.getAnswers());
+            // DNSAnswers.addAll(ans.getAnswers());
             
-            for (DNSResourceRecord cnameAns : cnameAnswers) {
-                DNSAnswers.add(cnameAns);
-            }
+            // for (DNSResourceRecord cnameAns : cnameAnswers) {
+            //     DNSAnswers.add(cnameAns);
+            // }
             ans.setAnswers(DNSAnswers);
             // for item : authAnswers{
                 
@@ -169,11 +179,14 @@ public class SimpleDNS
 			// ans.setAdditional(ans.getAdditional());
 			// ans.setAuthorities(ans.getAuthorities());
 
-            System.out.println(ans+"$$$$$$$$$$$$$\n");
+            ans.setRecursionAvailable(true);
+            ans.setRecursionDesired(false);
+            ans.setAuthenicated(false);
+            ans.setAuthoritative(false);
 
+            System.out.println(ans+"$$$$$$$$$$$$$\n");
             buffer = ans.serialize();
-            ansPkt = new DatagramPacket(buffer, buffer.length);
-		
+            ansPkt = new DatagramPacket(buffer, buffer.length);		
         
         return ansPkt;      
     }
@@ -217,6 +230,8 @@ public class SimpleDNS
                 }
             }
         }
+        DNS query = DNS.deserialize(queryPkt.getData(), queryPkt.getLength());
+        ans.addAdditional(query.getAdditional().get(0)); //pass opt PSEUDOSECTION back to client
         ans.setAnswers(updatedDNSAnswers);
         buffer = ans.serialize();
         ansPkt = new DatagramPacket(buffer, buffer.length);
