@@ -104,9 +104,14 @@ class SWPSender:
         data = self._buffer[seq_num]
 
         #send packet
+        import time
         packet = SWPPacket(SWPType.DATA, seq_num=seq_num, data=data)
         with self._llp_lock:
-            self._llp_endpoint.send(packet.to_bytes())
+            try:
+                self._llp_endpoint.send(packet.to_bytes())
+            except ConnectionRefusedError:
+                pass #ignore connection refused error (https://piazza.com/class/l75ltmle8rx3md/post/339)
+            
         logging.debug("Sent %s", packet)
 
         #timer retransmission
@@ -193,7 +198,7 @@ class SWPReceiver:
             #send ACK
             packet = SWPPacket(SWPType.ACK, self._next_byte_expected-1)
             self._llp_endpoint.send(packet.to_bytes())
-            #logging.debug("Sent %s", packet)
+            logging.debug("Sent %s", packet)
 
             #logging.debug("%s, %s, %s" % (self._last_byte_read, self._last_byte_rcvd, self._next_byte_expected))
             
